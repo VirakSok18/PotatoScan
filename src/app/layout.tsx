@@ -11,6 +11,10 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "PotatoScan",
   description: "Ad-free manga, manhwa, and manhua reader.",
+  icons: {
+    icon: "/potato-mascot.svg",
+    apple: "/potato-mascot.svg",
+  },
 };
 
 export const viewport: Viewport = {
