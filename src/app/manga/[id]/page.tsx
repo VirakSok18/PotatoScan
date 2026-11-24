@@ -115,9 +115,9 @@ export default async function MangaDetailPage({
                   href={`/read/${encodeURIComponent(
                     manga.id
                   )}/${encodeURIComponent(firstChapter.id)}`}
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[#38bdf8] px-5 text-sm font-semibold text-[#07131a] hover:bg-[#56ccf9] sm:flex-none"
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-[#38bdf8] px-5 text-sm font-semibold text-[#07131a] hover:bg-[#56ccf9] sm:w-auto"
                 >
-                  <BookOpen className="h-4 w-4" />
+                  <BookOpen className="h-4 w-4 shrink-0" />
                   <span>Read Ch {firstChapter.number}</span>
                 </Link>
               )}
@@ -126,7 +126,7 @@ export default async function MangaDetailPage({
                   href={`/read/${encodeURIComponent(
                     manga.id
                   )}/${encodeURIComponent(latestChapter.id)}`}
-                  className="inline-flex h-11 items-center justify-center rounded-lg border border-[#24242c] bg-[#141418] px-4 text-sm font-medium text-[#f4f4f6] hover:bg-[#1c1c22]"
+                  className="inline-flex h-11 flex-1 items-center justify-center whitespace-nowrap rounded-lg border border-[#24242c] bg-[#141418] px-4 text-sm font-medium text-[#f4f4f6] hover:bg-[#1c1c22] sm:flex-none"
                 >
                   Latest (Ch {latestChapter.number})
                 </Link>
