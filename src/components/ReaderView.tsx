@@ -272,12 +272,12 @@ export function ReaderView({
 
   return (
     <div className="min-h-screen bg-[#08080a] text-[#f4f4f6]">
-      {/* Hidden looping YouTube soundtrack */}
-      {musicVideoId && musicPlaying && (
+      {/* Hidden looping YouTube soundtrack (keeps playing when popover closes) */}
+      {musicVideoId && musicPlaying && !musicOpen && (
         <iframe
           ref={ytIframeRef}
           key={musicVideoId}
-          src={`https://www.youtube.com/embed/${musicVideoId}?autoplay=1&loop=1&playlist=${musicVideoId}&controls=0&enablejsapi=1`}
+          src={`https://www.youtube.com/embed/${musicVideoId}?autoplay=1&loop=1&playlist=${musicVideoId}&playsinline=1&controls=0&enablejsapi=1`}
           title="Reading soundtrack"
           allow="autoplay; encrypted-media"
           onLoad={() => {
@@ -286,7 +286,7 @@ export function ReaderView({
               if (musicVolume > 0) postYtCommand("unMute");
             }, 400);
           }}
-          className="pointer-events-none fixed h-0 w-0 opacity-0"
+          className="pointer-events-none fixed bottom-0 right-0 h-px w-px opacity-0"
         />
       )}
       {/* Top HUD */}
@@ -417,23 +417,40 @@ export function ReaderView({
               )}
             </form>
             {musicVideoId && (
-              <div className="mt-2.5 flex items-center gap-2.5 px-1">
-                <span className="w-8 text-[11px] text-[#8f9bb0]">
-                  {musicVolume}%
-                </span>
-                <Slider
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={musicVolume}
-                  onValueChange={(val) => {
-                    setMusicVolume(val);
-                    if (val > 0 && !musicPlaying) setMusicPlaying(true);
-                  }}
-                  aria-label="Soundtrack volume"
-                  className="flex-1"
-                />
-              </div>
+              <>
+                <div className="mt-2.5 overflow-hidden rounded-xl border border-white/10 bg-black/50">
+                  <iframe
+                    ref={ytIframeRef}
+                    src={`https://www.youtube.com/embed/${musicVideoId}?autoplay=1&loop=1&playlist=${musicVideoId}&playsinline=1&controls=1&enablejsapi=1`}
+                    title="Reading soundtrack player"
+                    allow="autoplay; encrypted-media"
+                    onLoad={() => {
+                      setTimeout(() => {
+                        postYtCommand("setVolume", [musicVolume]);
+                        if (musicVolume > 0) postYtCommand("unMute");
+                      }, 400);
+                    }}
+                    className="h-28 w-full"
+                  />
+                </div>
+                <div className="mt-2.5 flex items-center gap-2.5 px-1">
+                  <span className="w-8 text-[11px] text-[#8f9bb0]">
+                    {musicVolume}%
+                  </span>
+                  <Slider
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={musicVolume}
+                    onValueChange={(val) => {
+                      setMusicVolume(val);
+                      if (val > 0 && !musicPlaying) setMusicPlaying(true);
+                    }}
+                    aria-label="Soundtrack volume"
+                    className="flex-1"
+                  />
+                </div>
+              </>
             )}
           </Glass>
         </div>
