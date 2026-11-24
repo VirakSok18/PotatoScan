@@ -430,7 +430,7 @@ export function ReaderView({
                         if (musicVolume > 0) postYtCommand("unMute");
                       }, 400);
                     }}
-                    className="h-28 w-full"
+                    className="aspect-video w-full"
                   />
                 </div>
                 <div className="mt-2.5 flex items-center gap-2.5 px-1">
