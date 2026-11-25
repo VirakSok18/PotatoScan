@@ -9,12 +9,8 @@ import {
   Music,
   Pause,
   Play,
-  Trash2,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
-import { Glass, Slider } from "glisse";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { recordHistory } from "@/lib/storage";
 import type { ChapterItem } from "@/lib/types";
 import { useReaderSoundtrack } from "./ReaderSoundtrackContext";
@@ -84,16 +80,10 @@ export function ReaderView({
   const [hudVisible, setHudVisibleLocal] = useState(true);
   const [autoScroll, setAutoScroll] = useState(false);
   const [speedIndex, setSpeedIndex] = useState(1);
-  const [musicInput, setMusicInput] = useState(soundtrack.savedUrl);
 
   const speedRef = useRef(SPEEDS[1].pxPerSec);
   const hoverEdgeRef = useRef(false);
-  const hoverPopoverRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setMusicInput(soundtrack.savedUrl);
-  }, [soundtrack.savedUrl]);
 
   function setHud(visible: boolean) {
     setHudVisibleLocal(visible);
@@ -103,7 +93,7 @@ export function ReaderView({
   function scheduleHide(delay = 2500) {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
-      if (!hoverEdgeRef.current && !hoverPopoverRef.current) {
+      if (!hoverEdgeRef.current && !soundtrack.hoveringPopoverRef.current) {
         setHud(false);
       }
     }, delay);
@@ -130,7 +120,7 @@ export function ReaderView({
       const nearEdge = nearTop || nearBottom;
       hoverEdgeRef.current = nearEdge;
 
-      if (nearEdge || hoverPopoverRef.current) {
+      if (nearEdge || soundtrack.hoveringPopoverRef.current) {
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
         setHud(true);
       } else {
@@ -228,19 +218,6 @@ export function ReaderView({
     setSpeedIndex((i) => (i + 1) % SPEEDS.length);
   }
 
-  function handleSaveMusic(e: FormEvent) {
-    e.preventDefault();
-    const ok = soundtrack.saveUrl(musicInput);
-    if (ok) {
-      // Keep open briefly on mobile if a video was set so user can tap Play if needed
-      if (window.innerWidth >= 640) {
-        soundtrack.setPopoverOpen(false);
-      }
-    }
-  }
-
-  const showPopover = soundtrack.popoverOpen && hudVisible;
-
   return (
     <div className="min-h-screen bg-[#08080a] text-[#f4f4f6]">
       {/* Top HUD */}
@@ -325,98 +302,6 @@ export function ReaderView({
           </div>
         </div>
       </header>
-
-      {/* Compact Liquid Glass soundtrack popover (fades out with header) */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        onPointerEnter={() => {
-          hoverPopoverRef.current = true;
-          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          setHud(true);
-        }}
-        onPointerDown={() => {
-          hoverPopoverRef.current = true;
-          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          setHud(true);
-        }}
-        onPointerLeave={() => {
-          hoverPopoverRef.current = false;
-          scheduleHide(1400);
-        }}
-        className={`fixed left-1/2 top-16 z-40 w-[min(92vw,360px)] -translate-x-1/2 transition-opacity duration-300 ${
-          showPopover ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-      >
-        <Glass
-          className={`w-full rounded-2xl p-2.5 shadow-2xl ${
-            soundtrack.videoId ? "pb-[calc(min(86vw,340px)*9/16+16px)] sm:pb-2.5" : ""
-          }`}
-        >
-          <form onSubmit={handleSaveMusic} className="flex items-center gap-1.5">
-            <input
-              type="url"
-              value={musicInput}
-              onChange={(e) => setMusicInput(e.target.value)}
-              placeholder="Paste YouTube link"
-              aria-label="YouTube song link"
-              className="h-9 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-[#f4f7fb] placeholder:text-[#8f9bb0] focus:border-[#38bdf8] focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="h-9 shrink-0 rounded-xl bg-[#38bdf8] px-3 text-xs font-semibold text-[#07131a]"
-            >
-              Loop
-            </button>
-            {soundtrack.videoId && (
-              <>
-                <button
-                  type="button"
-                  onClick={soundtrack.togglePlay}
-                  aria-label={soundtrack.playing ? "Pause" : "Play"}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#f4f7fb]"
-                >
-                  {soundtrack.playing ? (
-                    <Volume2 className="h-4 w-4 text-[#38bdf8]" />
-                  ) : (
-                    <VolumeX className="h-4 w-4 text-[#8f9bb0]" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundtrack.clearMusic();
-                    setMusicInput("");
-                  }}
-                  aria-label="Remove soundtrack"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#8f9bb0] hover:text-[#f2a6a6]"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </>
-            )}
-          </form>
-
-          {soundtrack.videoId && (
-            <div className="mt-2.5 hidden items-center gap-2.5 px-1 sm:flex">
-              <span className="w-8 text-[11px] text-[#8f9bb0]">
-                {soundtrack.volume}%
-              </span>
-              <Slider
-                min={0}
-                max={100}
-                step={1}
-                value={soundtrack.volume}
-                onValueChange={(val) => {
-                  if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-                  soundtrack.setVolume(val);
-                }}
-                aria-label="Soundtrack volume"
-                className="flex-1"
-              />
-            </div>
-          )}
-        </Glass>
-      </div>
 
       {/* Reader Canvas */}
       <main

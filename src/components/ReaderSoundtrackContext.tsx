@@ -7,8 +7,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type FormEvent,
   type ReactNode,
 } from "react";
+import { Glass, Slider } from "glisse";
+import { Trash2, Volume2, VolumeX } from "lucide-react";
 import {
   extractYouTubeId,
   getSeriesMusic,
@@ -39,11 +42,6 @@ declare global {
           };
         }
       ) => YTPlayer;
-      PlayerState?: {
-        ENDED: number;
-        PLAYING: number;
-        PAUSED: number;
-      };
     };
     onYouTubeIframeAPIReady?: () => void;
   }
@@ -51,17 +49,11 @@ declare global {
 
 interface SoundtrackContextValue {
   videoId: string | null;
-  savedUrl: string;
   playing: boolean;
-  volume: number;
   popoverOpen: boolean;
-  hudVisible: boolean;
   setPopoverOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   setHudVisible: (visible: boolean) => void;
-  saveUrl: (url: string) => boolean;
-  clearMusic: () => void;
-  togglePlay: () => void;
-  setVolume: (vol: number) => void;
+  hoveringPopoverRef: React.MutableRefObject<boolean>;
 }
 
 const SoundtrackContext = createContext<SoundtrackContextValue | null>(null);
@@ -69,7 +61,9 @@ const SoundtrackContext = createContext<SoundtrackContextValue | null>(null);
 export function useReaderSoundtrack() {
   const ctx = useContext(SoundtrackContext);
   if (!ctx) {
-    throw new Error("useReaderSoundtrack must be used inside ReaderSoundtrackProvider");
+    throw new Error(
+      "useReaderSoundtrack must be used inside ReaderSoundtrackProvider"
+    );
   }
   return ctx;
 }
@@ -105,7 +99,7 @@ export function ReaderSoundtrackProvider({
   children: ReactNode;
 }) {
   const [videoId, setVideoId] = useState<string | null>(null);
-  const [savedUrl, setSavedUrl] = useState("");
+  const [input, setInput] = useState("");
   const [playing, setPlaying] = useState(true);
   const [volume, setVolumeState] = useState(8);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -113,6 +107,7 @@ export function ReaderSoundtrackProvider({
 
   const playerRef = useRef<YTPlayer | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
+  const hoveringPopoverRef = useRef(false);
   const volumeRef = useRef(8);
   const playingRef = useRef(true);
 
@@ -124,17 +119,15 @@ export function ReaderSoundtrackProvider({
     playingRef.current = playing;
   }, [playing]);
 
-  // Load saved track for this mangaId once when entering the series reader
   useEffect(() => {
     const saved = getSeriesMusic(mangaId);
     const id = saved ? extractYouTubeId(saved) : null;
-    setSavedUrl(saved || "");
+    setInput(saved || "");
     setVideoId(id);
     setPlaying(Boolean(id));
     setVolumeState(8);
   }, [mangaId]);
 
-  // Initialize official YouTube IFrame API player whenever videoId changes
   useEffect(() => {
     if (!videoId || !hostRef.current) {
       if (playerRef.current) {
@@ -184,7 +177,6 @@ export function ReaderSoundtrackProvider({
             }
           },
           onStateChange: (e) => {
-            // Guaranteed loop when track ends
             if (e.data === 0) {
               e.target.seekTo(0, true);
               e.target.playVideo();
@@ -199,7 +191,6 @@ export function ReaderSoundtrackProvider({
     };
   }, [videoId]);
 
-  // Cleanup player only when leaving this manga's reader layout completely
   useEffect(() => {
     return () => {
       if (playerRef.current) {
@@ -243,70 +234,134 @@ export function ReaderSoundtrackProvider({
     });
   }, []);
 
-  const saveUrl = useCallback(
-    (url: string) => {
-      const trimmed = url.trim();
-      if (!trimmed) {
-        setSeriesMusic(mangaId, null);
-        setSavedUrl("");
-        setVideoId(null);
-        setPlaying(false);
-        return true;
-      }
-      const id = extractYouTubeId(trimmed);
-      if (!id) return false;
-      setSeriesMusic(mangaId, trimmed);
-      setSavedUrl(trimmed);
-      setVideoId(id);
-      setPlaying(true);
-      return true;
-    },
-    [mangaId]
-  );
+  function handleSave(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed) {
+      setSeriesMusic(mangaId, null);
+      setVideoId(null);
+      setPlaying(false);
+      setPopoverOpen(false);
+      return;
+    }
+    const id = extractYouTubeId(trimmed);
+    if (!id) return;
+    setSeriesMusic(mangaId, trimmed);
+    setVideoId(id);
+    setPlaying(true);
+    if (typeof window !== "undefined" && window.innerWidth >= 640) {
+      setPopoverOpen(false);
+    }
+  }
 
-  const clearMusic = useCallback(() => {
+  function handleClear() {
     setSeriesMusic(mangaId, null);
-    setSavedUrl("");
+    setInput("");
     setVideoId(null);
     setPlaying(false);
     setPopoverOpen(false);
-  }, [mangaId]);
+  }
 
-  // Visible inside the mobile popover when open & header is visible; hidden off-screen otherwise
-  const showMobilePlayer = Boolean(videoId && popoverOpen && hudVisible);
+  const showPopover = popoverOpen && hudVisible;
 
   return (
     <SoundtrackContext.Provider
       value={{
         videoId,
-        savedUrl,
         playing,
-        volume,
         popoverOpen,
-        hudVisible,
         setPopoverOpen,
         setHudVisible,
-        saveUrl,
-        clearMusic,
-        togglePlay,
-        setVolume,
+        hoveringPopoverRef,
       }}
     >
       {children}
 
-      {/* Persistent YouTube player: stays alive across chapter switches */}
-      {videoId && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className={
-            showMobilePlayer
-              ? "fixed left-1/2 top-[172px] z-50 aspect-video w-[min(86vw,340px)] -translate-x-1/2 overflow-hidden rounded-xl border border-white/15 bg-black shadow-2xl transition-opacity duration-300 sm:pointer-events-none sm:bottom-0 sm:left-auto sm:right-0 sm:top-auto sm:h-px sm:w-px sm:translate-x-0 sm:border-0 sm:opacity-0"
-              : "pointer-events-none fixed bottom-0 right-0 h-px w-px opacity-0"
-          }
-        >
-          <div ref={hostRef} className="h-full w-full" />
-        </div>
-      )}
+      {/* Unified Liquid Glass soundtrack popover + persistent YouTube player inside it */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onPointerEnter={() => {
+          hoveringPopoverRef.current = true;
+        }}
+        onPointerDown={() => {
+          hoveringPopoverRef.current = true;
+        }}
+        onPointerLeave={() => {
+          hoveringPopoverRef.current = false;
+        }}
+        className={`fixed left-1/2 top-16 z-50 w-[min(92vw,360px)] -translate-x-1/2 transition-opacity duration-300 ${
+          showPopover ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        <Glass className="w-full rounded-2xl p-2.5 shadow-2xl">
+          <div className="flex w-full flex-col gap-2.5">
+            <form onSubmit={handleSave} className="flex items-center gap-1.5">
+              <input
+                type="url"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Paste YouTube link"
+                aria-label="YouTube song link"
+                className="h-9 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-[#f4f7fb] placeholder:text-[#8f9bb0] focus:border-[#38bdf8] focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="h-9 shrink-0 rounded-xl bg-[#38bdf8] px-3 text-xs font-semibold text-[#07131a]"
+              >
+                Loop
+              </button>
+              {videoId && (
+                <>
+                  <button
+                    type="button"
+                    onClick={togglePlay}
+                    aria-label={playing ? "Pause" : "Play"}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#f4f7fb]"
+                  >
+                    {playing ? (
+                      <Volume2 className="h-4 w-4 text-[#38bdf8]" />
+                    ) : (
+                      <VolumeX className="h-4 w-4 text-[#8f9bb0]" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    aria-label="Remove soundtrack"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#8f9bb0] hover:text-[#f2a6a6]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+            </form>
+
+            {videoId && (
+              <div className="flex items-center gap-2.5 px-1">
+                <span className="w-8 text-[11px] text-[#8f9bb0]">
+                  {volume}%
+                </span>
+                <Slider
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={volume}
+                  onValueChange={(val) => setVolume(val)}
+                  aria-label="Soundtrack volume"
+                  className="flex-1"
+                />
+              </div>
+            )}
+
+            {/* Player stays mounted inside the card on mobile; hidden on desktop */}
+            {videoId && (
+              <div className="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black sm:pointer-events-none sm:fixed sm:bottom-0 sm:right-0 sm:h-px sm:w-px sm:border-0 sm:opacity-0">
+                <div ref={hostRef} className="h-full w-full" />
+              </div>
+            )}
+          </div>
+        </Glass>
+      </div>
     </SoundtrackContext.Provider>
   );
 }
