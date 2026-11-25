@@ -15,13 +15,9 @@ import {
 } from "lucide-react";
 import { Glass, Slider } from "glisse";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import {
-  extractYouTubeId,
-  getSeriesMusic,
-  recordHistory,
-  setSeriesMusic,
-} from "@/lib/storage";
+import { recordHistory } from "@/lib/storage";
 import type { ChapterItem } from "@/lib/types";
+import { useReaderSoundtrack } from "./ReaderSoundtrackContext";
 
 interface ReaderViewProps {
   mangaId: string;
@@ -83,90 +79,47 @@ export function ReaderView({
   images,
 }: ReaderViewProps) {
   const router = useRouter();
-  const [hudVisible, setHudVisible] = useState(true);
+  const soundtrack = useReaderSoundtrack();
+
+  const [hudVisible, setHudVisibleLocal] = useState(true);
   const [autoScroll, setAutoScroll] = useState(false);
   const [speedIndex, setSpeedIndex] = useState(1);
-  const [musicVideoId, setMusicVideoId] = useState<string | null>(null);
-  const [musicPlaying, setMusicPlaying] = useState(true);
-  const [musicVolume, setMusicVolume] = useState(8);
-  const [musicOpen, setMusicOpen] = useState(false);
-  const [musicInput, setMusicInput] = useState("");
+  const [musicInput, setMusicInput] = useState(soundtrack.savedUrl);
+
   const speedRef = useRef(SPEEDS[1].pxPerSec);
-  const ytIframeRef = useRef<HTMLIFrameElement>(null);
-
-  function postYtCommand(func: string, args: unknown[] = []) {
-    ytIframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ event: "command", func, args }),
-      "*"
-    );
-  }
-
-  useEffect(() => {
-    const saved = getSeriesMusic(mangaId);
-    const id = saved ? extractYouTubeId(saved) : null;
-    setMusicVideoId(id);
-    setMusicInput(saved || "");
-    setMusicPlaying(Boolean(id));
-    setMusicVolume(8);
-  }, [mangaId]);
-
-  useEffect(() => {
-    if (!musicVideoId || !musicPlaying) return;
-    postYtCommand("setVolume", [musicVolume]);
-    if (musicVolume === 0) {
-      postYtCommand("mute");
-    } else {
-      postYtCommand("unMute");
-    }
-  }, [musicVolume, musicVideoId, musicPlaying]);
-
-  function handleSaveMusic(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = musicInput.trim();
-    if (!trimmed) {
-      setSeriesMusic(mangaId, null);
-      setMusicVideoId(null);
-      setMusicPlaying(false);
-      setMusicOpen(false);
-      return;
-    }
-    const id = extractYouTubeId(trimmed);
-    if (!id) return;
-    setSeriesMusic(mangaId, trimmed);
-    setMusicVideoId(id);
-    setMusicPlaying(true);
-    setMusicOpen(false);
-  }
-
-  function handleClearMusic() {
-    setSeriesMusic(mangaId, null);
-    setMusicVideoId(null);
-    setMusicInput("");
-    setMusicPlaying(false);
-    setMusicOpen(false);
-  }
   const hoverEdgeRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setMusicInput(soundtrack.savedUrl);
+  }, [soundtrack.savedUrl]);
+
+  function setHud(visible: boolean) {
+    setHudVisibleLocal(visible);
+    soundtrack.setHudVisible(visible);
+  }
 
   function scheduleHide(delay = 2500) {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
       if (!hoverEdgeRef.current) {
-        setHudVisible(false);
+        setHud(false);
       }
     }, delay);
   }
 
   function showHudBriefly() {
-    setHudVisible(true);
+    setHud(true);
     scheduleHide(2800);
   }
 
   useEffect(() => {
+    setHud(true);
     scheduleHide(2800);
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -178,7 +131,7 @@ export function ReaderView({
 
       if (nearEdge) {
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-        setHudVisible(true);
+        setHud(true);
       } else {
         scheduleHide(1400);
       }
@@ -186,6 +139,7 @@ export function ReaderView({
 
     window.addEventListener("mousemove", onMouseMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMouseMove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -211,7 +165,7 @@ export function ReaderView({
     });
   }, [mangaId, mangaTitle, mangaCover, chapterId, currentChapter?.number]);
 
-  // Smooth requestAnimationFrame auto-scroll (middle-click wheel style)
+  // Smooth requestAnimationFrame auto-scroll
   useEffect(() => {
     if (!autoScroll) return;
 
@@ -249,7 +203,10 @@ export function ReaderView({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
         return;
       }
       if (e.key === " ") {
@@ -270,40 +227,27 @@ export function ReaderView({
     setSpeedIndex((i) => (i + 1) % SPEEDS.length);
   }
 
+  function handleSaveMusic(e: FormEvent) {
+    e.preventDefault();
+    const ok = soundtrack.saveUrl(musicInput);
+    if (ok) {
+      // Keep open briefly on mobile if a video was set so user can tap Play if needed
+      if (window.innerWidth >= 640) {
+        soundtrack.setPopoverOpen(false);
+      }
+    }
+  }
+
+  const showPopover = soundtrack.popoverOpen && hudVisible;
+
   return (
     <div className="min-h-screen bg-[#08080a] text-[#f4f4f6]">
-      {/* Single persistent YouTube iframe so closing the popover never interrupts playback */}
-      {musicVideoId && musicPlaying && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className={
-            musicOpen
-              ? "fixed left-1/2 top-[132px] z-50 w-[min(86vw,340px)] -translate-x-1/2 overflow-hidden rounded-xl border border-white/10 bg-black/50 sm:pointer-events-none sm:bottom-0 sm:left-auto sm:right-0 sm:top-auto sm:h-px sm:w-px sm:translate-x-0 sm:border-0 sm:opacity-0"
-              : "pointer-events-none fixed bottom-0 right-0 h-px w-px opacity-0"
-          }
-        >
-          <iframe
-            ref={ytIframeRef}
-            key={musicVideoId}
-            src={`https://www.youtube.com/embed/${musicVideoId}?autoplay=1&loop=1&playlist=${musicVideoId}&playsinline=1&controls=1&enablejsapi=1`}
-            title="Reading soundtrack"
-            allow="autoplay; encrypted-media"
-            onLoad={() => {
-              setTimeout(() => {
-                postYtCommand("setVolume", [musicVolume]);
-                if (musicVolume > 0) postYtCommand("unMute");
-              }, 400);
-            }}
-            className="aspect-video w-full"
-          />
-        </div>
-      )}
       {/* Top HUD */}
       <header
         onMouseEnter={() => {
           hoverEdgeRef.current = true;
           if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          setHudVisible(true);
+          setHud(true);
         }}
         onMouseLeave={() => {
           hoverEdgeRef.current = false;
@@ -335,10 +279,13 @@ export function ReaderView({
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setMusicOpen((v) => !v)}
+              onClick={() => {
+                setHud(true);
+                soundtrack.setPopoverOpen((v) => !v);
+              }}
               aria-label="Series soundtrack"
               className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
-                musicVideoId && musicPlaying
+                soundtrack.videoId && soundtrack.playing
                   ? "border-[#38bdf8] bg-[#38bdf8]/15 text-[#38bdf8]"
                   : "border-[#24242c] bg-[#141418] text-[#9393a0] hover:bg-[#1c1c22] hover:text-[#f4f4f6]"
               }`}
@@ -378,81 +325,94 @@ export function ReaderView({
         </div>
       </header>
 
-      {/* Compact Liquid Glass soundtrack popover */}
-      {musicOpen && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-16 z-50 w-[min(92vw,360px)] -translate-x-1/2"
+      {/* Compact Liquid Glass soundtrack popover (fades out with header) */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onMouseEnter={() => {
+          hoverEdgeRef.current = true;
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        }}
+        onMouseLeave={() => {
+          hoverEdgeRef.current = false;
+          scheduleHide(1400);
+        }}
+        className={`fixed left-1/2 top-16 z-40 w-[min(92vw,360px)] -translate-x-1/2 transition-opacity duration-300 ${
+          showPopover ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        <Glass
+          className={`w-full rounded-2xl p-2.5 shadow-2xl ${
+            soundtrack.videoId ? "pb-[calc(min(86vw,340px)*9/16+16px)] sm:pb-2.5" : ""
+          }`}
         >
-          <Glass className="w-full rounded-2xl p-2.5 shadow-2xl">
-            <form onSubmit={handleSaveMusic} className="flex items-center gap-1.5">
-              <input
-                type="url"
-                value={musicInput}
-                onChange={(e) => setMusicInput(e.target.value)}
-                placeholder="Paste YouTube link"
-                aria-label="YouTube song link"
-                className="h-9 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-[#f4f7fb] placeholder:text-[#8f9bb0] focus:border-[#38bdf8] focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="h-9 shrink-0 rounded-xl bg-[#38bdf8] px-3 text-xs font-semibold text-[#07131a]"
-              >
-                Loop
-              </button>
-              {musicVideoId && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setMusicPlaying((v) => !v)}
-                    aria-label={musicPlaying ? "Mute" : "Unmute"}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#f4f7fb]"
-                  >
-                    {musicPlaying ? (
-                      <Volume2 className="h-4 w-4 text-[#38bdf8]" />
-                    ) : (
-                      <VolumeX className="h-4 w-4 text-[#8f9bb0]" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearMusic}
-                    aria-label="Remove soundtrack"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#8f9bb0] hover:text-[#f2a6a6]"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              )}
-            </form>
-            {musicVideoId && (
-              <div className="mt-2.5 flex items-center gap-2.5 px-1">
-                <span className="w-8 text-[11px] text-[#8f9bb0]">
-                  {musicVolume}%
-                </span>
-                <Slider
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={musicVolume}
-                  onValueChange={(val) => {
-                    setMusicVolume(val);
-                    if (val > 0 && !musicPlaying) setMusicPlaying(true);
+          <form onSubmit={handleSaveMusic} className="flex items-center gap-1.5">
+            <input
+              type="url"
+              value={musicInput}
+              onChange={(e) => setMusicInput(e.target.value)}
+              placeholder="Paste YouTube link"
+              aria-label="YouTube song link"
+              className="h-9 min-w-0 flex-1 rounded-xl border border-white/10 bg-black/35 px-3 text-xs text-[#f4f7fb] placeholder:text-[#8f9bb0] focus:border-[#38bdf8] focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="h-9 shrink-0 rounded-xl bg-[#38bdf8] px-3 text-xs font-semibold text-[#07131a]"
+            >
+              Loop
+            </button>
+            {soundtrack.videoId && (
+              <>
+                <button
+                  type="button"
+                  onClick={soundtrack.togglePlay}
+                  aria-label={soundtrack.playing ? "Pause" : "Play"}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#f4f7fb]"
+                >
+                  {soundtrack.playing ? (
+                    <Volume2 className="h-4 w-4 text-[#38bdf8]" />
+                  ) : (
+                    <VolumeX className="h-4 w-4 text-[#8f9bb0]" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundtrack.clearMusic();
+                    setMusicInput("");
                   }}
-                  aria-label="Soundtrack volume"
-                  className="flex-1"
-                />
-              </div>
+                  aria-label="Remove soundtrack"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-[#8f9bb0] hover:text-[#f2a6a6]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
-          </Glass>
-        </div>
-      )}
+          </form>
+
+          {soundtrack.videoId && (
+            <div className="mt-2.5 flex items-center gap-2.5 px-1">
+              <span className="w-8 text-[11px] text-[#8f9bb0]">
+                {soundtrack.volume}%
+              </span>
+              <Slider
+                min={0}
+                max={100}
+                step={1}
+                value={soundtrack.volume}
+                onValueChange={(val) => soundtrack.setVolume(val)}
+                aria-label="Soundtrack volume"
+                className="flex-1"
+              />
+            </div>
+          )}
+        </Glass>
+      </div>
 
       {/* Reader Canvas */}
       <main
         onClick={() => {
           if (hudVisible) {
-            setHudVisible(false);
+            setHud(false);
           } else {
             showHudBriefly();
           }
@@ -536,7 +496,7 @@ export function ReaderView({
         onMouseEnter={() => {
           hoverEdgeRef.current = true;
           if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          setHudVisible(true);
+          setHud(true);
         }}
         onMouseLeave={() => {
           hoverEdgeRef.current = false;
