@@ -156,6 +156,95 @@ export function ReaderView({
     });
   }, [mangaId, mangaTitle, mangaCover, chapterId, currentChapter?.number]);
 
+  // Background preload: all pages of current chapter + next 2 chapter routes & images
+  useEffect(() => {
+    let cancelled = false;
+
+    // 1. Prefetch Next.js routes for the next 2 chapters
+    const upcoming = [
+      currentIdx > 0 ? chapters[currentIdx - 1] : null,
+      currentIdx > 1 ? chapters[currentIdx - 2] : null,
+    ].filter((c): c is ChapterItem => c !== null);
+
+    upcoming.forEach((ch) => {
+      router.prefetch(
+        `/read/${encodeURIComponent(mangaId)}/${encodeURIComponent(ch.id)}`
+      );
+    });
+
+    // 2. Preload images in small concurrent batches so fast swiping is instant
+    function preloadBatch(urls: string[], concurrency = 4): Promise<void> {
+      return new Promise((resolve) => {
+        let index = 0;
+        let active = 0;
+        let finished = 0;
+        if (urls.length === 0) {
+          resolve();
+          return;
+        }
+
+        function next() {
+          if (cancelled) {
+            resolve();
+            return;
+          }
+          while (active < concurrency && index < urls.length) {
+            const url = urls[index++];
+            active++;
+            const img = new Image();
+            img.decoding = "async";
+            const done = () => {
+              active--;
+              finished++;
+              if (finished >= urls.length) {
+                resolve();
+              } else {
+                next();
+              }
+            };
+            img.onload = done;
+            img.onerror = done;
+            img.src = url;
+          }
+        }
+
+        next();
+      });
+    }
+
+    async function runPreload() {
+      // Preload all remaining pages of current chapter
+      await preloadBatch(
+        images.map((i) => i.url),
+        4
+      );
+      if (cancelled) return;
+
+      // Warm the first 6 pages of each of the next 2 chapters
+      for (const ch of upcoming) {
+        if (cancelled) return;
+        try {
+          const res = await fetch(
+            `/api/chapter/${encodeURIComponent(ch.id)}`
+          );
+          if (!res.ok || cancelled) continue;
+          const data = (await res.json()) as {
+            images?: { url: string }[];
+          };
+          const urls = (data.images || []).slice(0, 6).map((i) => i.url);
+          await preloadBatch(urls, 3);
+        } catch {
+          // Ignore background prefetch errors
+        }
+      }
+    }
+
+    runPreload();
+    return () => {
+      cancelled = true;
+    };
+  }, [chapterId, currentIdx, chapters, images, mangaId, router]);
+
   // Smooth requestAnimationFrame auto-scroll
   useEffect(() => {
     if (!autoScroll) return;
