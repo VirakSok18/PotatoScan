@@ -88,6 +88,7 @@ export function ReaderView({
 
   const speedRef = useRef(SPEEDS[1].pxPerSec);
   const hoverEdgeRef = useRef(false);
+  const hoverPopoverRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -102,7 +103,7 @@ export function ReaderView({
   function scheduleHide(delay = 2500) {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
-      if (!hoverEdgeRef.current) {
+      if (!hoverEdgeRef.current && !hoverPopoverRef.current) {
         setHud(false);
       }
     }, delay);
@@ -129,7 +130,7 @@ export function ReaderView({
       const nearEdge = nearTop || nearBottom;
       hoverEdgeRef.current = nearEdge;
 
-      if (nearEdge) {
+      if (nearEdge || hoverPopoverRef.current) {
         if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
         setHud(true);
       } else {
@@ -328,12 +329,18 @@ export function ReaderView({
       {/* Compact Liquid Glass soundtrack popover (fades out with header) */}
       <div
         onClick={(e) => e.stopPropagation()}
-        onMouseEnter={() => {
-          hoverEdgeRef.current = true;
+        onPointerEnter={() => {
+          hoverPopoverRef.current = true;
           if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+          setHud(true);
         }}
-        onMouseLeave={() => {
-          hoverEdgeRef.current = false;
+        onPointerDown={() => {
+          hoverPopoverRef.current = true;
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+          setHud(true);
+        }}
+        onPointerLeave={() => {
+          hoverPopoverRef.current = false;
           scheduleHide(1400);
         }}
         className={`fixed left-1/2 top-16 z-40 w-[min(92vw,360px)] -translate-x-1/2 transition-opacity duration-300 ${
@@ -390,7 +397,7 @@ export function ReaderView({
           </form>
 
           {soundtrack.videoId && (
-            <div className="mt-2.5 flex items-center gap-2.5 px-1">
+            <div className="mt-2.5 hidden items-center gap-2.5 px-1 sm:flex">
               <span className="w-8 text-[11px] text-[#8f9bb0]">
                 {soundtrack.volume}%
               </span>
@@ -399,7 +406,10 @@ export function ReaderView({
                 max={100}
                 step={1}
                 value={soundtrack.volume}
-                onValueChange={(val) => soundtrack.setVolume(val)}
+                onValueChange={(val) => {
+                  if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+                  soundtrack.setVolume(val);
+                }}
                 aria-label="Soundtrack volume"
                 className="flex-1"
               />
