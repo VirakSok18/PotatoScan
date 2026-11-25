@@ -80,6 +80,7 @@ export function ReaderView({
   const [hudVisible, setHudVisibleLocal] = useState(true);
   const [autoScroll, setAutoScroll] = useState(false);
   const [speedIndex, setSpeedIndex] = useState(1);
+  const [progress, setProgress] = useState(0);
 
   const speedRef = useRef(SPEEDS[1].pxPerSec);
   const hoverEdgeRef = useRef(false);
@@ -146,6 +147,7 @@ export function ReaderView({
 
   useEffect(() => {
     setAutoScroll(false);
+    setProgress(0);
     window.scrollTo({ top: 0 });
     recordHistory({
       mangaId,
@@ -155,6 +157,29 @@ export function ReaderView({
       chapterNumber: currentChapter?.number || "?",
     });
   }, [mangaId, mangaTitle, mangaCover, chapterId, currentChapter?.number]);
+
+  // Track vertical scroll progress (0-100%)
+  useEffect(() => {
+    function onScroll() {
+      const scrollTop = window.scrollY;
+      const maxScroll =
+        document.documentElement.scrollHeight - window.innerHeight;
+      if (maxScroll <= 0) {
+        setProgress(0);
+        return;
+      }
+      const pct = Math.min(100, Math.max(0, (scrollTop / maxScroll) * 100));
+      setProgress(pct);
+    }
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [chapterId]);
 
   // Background preload: all pages of current chapter + next 2 chapter routes & images
   useEffect(() => {
@@ -309,6 +334,19 @@ export function ReaderView({
 
   return (
     <div className="min-h-screen bg-[#08080a] text-[#f4f4f6]">
+      {/* Left-edge reading progress indicator */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed bottom-20 left-1.5 top-20 z-30 flex w-1.5 flex-col items-center sm:left-3"
+      >
+        <div className="relative h-full w-1 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="w-full rounded-full bg-[#38bdf8] transition-[height] duration-100 ease-out"
+            style={{ height: `${progress}%` }}
+          />
+        </div>
+      </div>
+
       {/* Top HUD */}
       <header
         onMouseEnter={() => {
