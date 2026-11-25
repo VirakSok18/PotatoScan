@@ -339,9 +339,15 @@ export function ReaderView({
         aria-hidden="true"
         className="pointer-events-none fixed bottom-0 left-0 top-0 z-30 w-[3px] bg-white/10"
       >
+        {/* Passed trail (dimmed) */}
         <div
-          className="w-full bg-[#38bdf8] transition-[height] duration-75 ease-out"
+          className="w-full bg-[#38bdf8]/30 transition-[height] duration-75 ease-out"
           style={{ height: `${progress}%` }}
+        />
+        {/* Current position block (brightest) */}
+        <div
+          className="absolute left-0 h-[1%] min-h-[6px] w-full bg-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.9)] transition-[top] duration-75 ease-out"
+          style={{ top: `calc(${progress}% - 3px)` }}
         />
         {/* 1% dark micro-dividers from top (0%) to bottom (100%) */}
         <div
