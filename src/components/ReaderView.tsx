@@ -334,17 +334,23 @@ export function ReaderView({
 
   return (
     <div className="min-h-screen bg-[#08080a] text-[#f4f4f6]">
-      {/* Left-edge reading progress indicator */}
+      {/* Left-edge segmented micro-block reading progress indicator */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed bottom-20 left-1.5 top-20 z-30 flex w-1.5 flex-col items-center sm:left-3"
+        className="pointer-events-none fixed bottom-24 left-0.5 top-24 z-30 flex flex-col justify-between gap-[2px] sm:left-1"
       >
-        <div className="relative h-full w-1 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="w-full rounded-full bg-[#38bdf8] transition-[height] duration-100 ease-out"
-            style={{ height: `${progress}%` }}
-          />
-        </div>
+        {Array.from({ length: 16 }).map((_, idx) => {
+          const threshold = ((idx + 1) / 16) * 100;
+          const active = progress >= threshold - 3;
+          return (
+            <span
+              key={idx}
+              className={`w-[3px] flex-1 rounded-[1px] transition-colors duration-150 ${
+                active ? "bg-[#38bdf8]" : "bg-white/10"
+              }`}
+            />
+          );
+        })}
       </div>
 
       {/* Top HUD */}
