@@ -8,8 +8,214 @@ import type {
 } from "./types";
 
 const BASE = "https://weebcentral.com";
+const MD_API = "https://api.mangadex.org";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+function mapMdFormat(lang?: string): MangaItem["format"] {
+  if (lang === "ko") return "Manhwa";
+  if (lang === "zh" || lang === "zh-hk") return "Manhua";
+  if (lang === "ja") return "Manga";
+  return "Comic";
+}
+
+function pickLocalized(map?: Record<string, string>): string {
+  if (!map) return "";
+  return map.en || map["ja-ro"] || map["ko-ro"] || Object.values(map)[0] || "";
+}
+
+async function searchMangaDex(query: string): Promise<MangaItem[]> {
+  try {
+    const url = `${MD_API}/manga?title=${encodeURIComponent(
+      query
+    )}&limit=16&includes[]=cover_art&availableTranslatedLanguage[]=en&contentRating[]=safe&contentRating[]=suggestive&order[relevance]=desc`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "PotatoScan/1.0" },
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      data?: Array<{
+        id: string;
+        attributes?: {
+          title?: Record<string, string>;
+          originalLanguage?: string;
+          status?: string;
+          year?: number | null;
+          lastChapter?: string | null;
+        };
+        relationships?: Array<{
+          type: string;
+          attributes?: { fileName?: string };
+        }>;
+      }>;
+    };
+
+    return (json.data || []).map((m) => {
+      const title = pickLocalized(m.attributes?.title) || "Untitled";
+      const coverRel = m.relationships?.find((r) => r.type === "cover_art");
+      const fileName = coverRel?.attributes?.fileName;
+      const rawCover = fileName
+        ? `https://uploads.mangadex.org/covers/${m.id}/${fileName}.512.jpg`
+        : "";
+      const rawStatus = m.attributes?.status;
+      const status = rawStatus
+        ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1)
+        : undefined;
+
+      return {
+        id: `md_${m.id}`,
+        title,
+        cover: proxyImageUrl(rawCover),
+        format: mapMdFormat(m.attributes?.originalLanguage),
+        status,
+        year: m.attributes?.year ?? null,
+        latestChapter: m.attributes?.lastChapter || undefined,
+        source: "comix" as const,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function getMangaDexDetail(uuid: string): Promise<MangaDetail> {
+  const [mangaRes, feedRes] = await Promise.all([
+    fetch(`${MD_API}/manga/${encodeURIComponent(uuid)}?includes[]=cover_art&includes[]=author`, {
+      headers: { "User-Agent": "PotatoScan/1.0" },
+      next: { revalidate: 600 },
+    }),
+    fetch(
+      `${MD_API}/manga/${encodeURIComponent(
+        uuid
+      )}/feed?translatedLanguage[]=en&order[chapter]=desc&limit=500&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica`,
+      {
+        headers: { "User-Agent": "PotatoScan/1.0" },
+        next: { revalidate: 180 },
+      }
+    ),
+  ]);
+
+  if (!mangaRes.ok) {
+    throw new Error(`Series fetch failed (${mangaRes.status})`);
+  }
+
+  const mangaJson = (await mangaRes.json()) as {
+    data: {
+      id: string;
+      attributes?: {
+        title?: Record<string, string>;
+        description?: Record<string, string>;
+        originalLanguage?: string;
+        status?: string;
+        year?: number | null;
+        tags?: Array<{ attributes?: { name?: Record<string, string> } }>;
+      };
+      relationships?: Array<{
+        type: string;
+        attributes?: { fileName?: string; name?: string };
+      }>;
+    };
+  };
+
+  const m = mangaJson.data;
+  const title = pickLocalized(m.attributes?.title) || "Untitled";
+  const description = pickLocalized(m.attributes?.description) || "";
+  const coverRel = m.relationships?.find((r) => r.type === "cover_art");
+  const fileName = coverRel?.attributes?.fileName;
+  const rawCover = fileName
+    ? `https://uploads.mangadex.org/covers/${m.id}/${fileName}.512.jpg`
+    : "";
+  const authors = (m.relationships || [])
+    .filter((r) => r.type === "author" && r.attributes?.name)
+    .map((r) => r.attributes!.name!);
+  const tags = (m.attributes?.tags || [])
+    .map((t) => pickLocalized(t.attributes?.name))
+    .filter(Boolean)
+    .slice(0, 8);
+  const rawStatus = m.attributes?.status;
+  const status = rawStatus
+    ? rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1)
+    : undefined;
+
+  const chapters: ChapterItem[] = [];
+  if (feedRes.ok) {
+    const feedJson = (await feedRes.json()) as {
+      data?: Array<{
+        id: string;
+        attributes?: {
+          chapter?: string | null;
+          title?: string | null;
+          publishAt?: string;
+          pages?: number;
+          externalUrl?: string | null;
+        };
+      }>;
+    };
+
+    const seenNum = new Set<string>();
+    for (const ch of feedJson.data || []) {
+      // Skip external-only chapters that have 0 hosted pages
+      if (ch.attributes?.externalUrl && !ch.attributes?.pages) continue;
+      const num = ch.attributes?.chapter || "?";
+      if (num !== "?" && seenNum.has(num)) continue;
+      seenNum.add(num);
+      chapters.push({
+        id: `md_${ch.id}`,
+        number: num,
+        title: ch.attributes?.title || "",
+        publishedAt: ch.attributes?.publishAt,
+      });
+    }
+  }
+
+  return {
+    id: `md_${m.id}`,
+    title,
+    cover: proxyImageUrl(rawCover),
+    format: mapMdFormat(m.attributes?.originalLanguage),
+    status,
+    year: m.attributes?.year ?? null,
+    description,
+    tags,
+    authors: Array.from(new Set(authors)),
+    chapters,
+    source: "comix",
+  };
+}
+
+async function getMangaDexChapterPages(
+  chapterUuid: string
+): Promise<ChapterPages> {
+  const res = await fetch(
+    `${MD_API}/at-home/server/${encodeURIComponent(chapterUuid)}`,
+    {
+      headers: { "User-Agent": "PotatoScan/1.0" },
+      next: { revalidate: 1800 },
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`Chapter pages fetch failed (${res.status})`);
+  }
+  const json = (await res.json()) as {
+    baseUrl?: string;
+    chapter?: { hash?: string; data?: string[]; dataSaver?: string[] };
+  };
+  const baseUrl = json.baseUrl || "";
+  const hash = json.chapter?.hash || "";
+  const files = json.chapter?.data || json.chapter?.dataSaver || [];
+  const mode = json.chapter?.data?.length ? "data" : "data-saver";
+
+  const images = files.map((file) => ({
+    url: proxyImageUrl(`${baseUrl}/${mode}/${hash}/${file}`),
+  }));
+
+  return {
+    chapterId: `md_${chapterUuid}`,
+    total: images.length,
+    images,
+  };
+}
 
 export function proxyImageUrl(url: string): string {
   if (!url) return "";
@@ -139,20 +345,43 @@ export async function searchManga(
   const q = query.trim();
   if (!q) return { items: [], source: "comix" };
 
-  const html = await fetchHtml(
-    `${BASE}/search/data?text=${encodeURIComponent(
-      q
-    )}&limit=24&display_mode=Full+Display`,
-    120
-  );
+  let primary: MangaItem[] = [];
+  try {
+    const html = await fetchHtml(
+      `${BASE}/search/data?text=${encodeURIComponent(
+        q
+      )}&limit=24&display_mode=Full+Display`,
+      120
+    );
+    primary = parseSearchArticles(html);
+  } catch {
+    primary = [];
+  }
+
+  // Fallback to MangaDex when primary returns fewer than 6 results
+  if (primary.length < 6) {
+    const mdItems = await searchMangaDex(q);
+    const seenTitles = new Set(
+      primary.map((i) => i.title.toLowerCase().trim())
+    );
+    for (const item of mdItems) {
+      const key = item.title.toLowerCase().trim();
+      if (seenTitles.has(key)) continue;
+      seenTitles.add(key);
+      primary.push(item);
+    }
+  }
 
   return {
-    items: parseSearchArticles(html),
+    items: primary,
     source: "comix",
   };
 }
 
 export async function getMangaDetail(id: string): Promise<MangaDetail> {
+  if (id.startsWith("md_")) {
+    return getMangaDexDetail(id.slice(3));
+  }
   const seriesId = id.split("-")[0];
 
   const [seriesHtml, chaptersHtml] = await Promise.all([
@@ -261,6 +490,9 @@ export async function getMangaDetail(id: string): Promise<MangaDetail> {
 }
 
 export async function getChapterPages(chapterId: string): Promise<ChapterPages> {
+  if (chapterId.startsWith("md_")) {
+    return getMangaDexChapterPages(chapterId.slice(3));
+  }
   const html = await fetchHtml(
     `${BASE}/chapters/${encodeURIComponent(
       chapterId
