@@ -3,12 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 async function fetchImageWithRetry(url: string, origin: string): Promise<Response> {
   const isMangaDex =
     origin.includes("mangadex.org") || origin.includes("mangadex.network");
-  const headers = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    Referer: isMangaDex ? "https://mangadex.org/" : "https://weebcentral.com/",
-    Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-  };
+  const headers: Record<string, string> = isMangaDex
+    ? {
+        "User-Agent": "PotatoScan/1.0",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      }
+    : {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        Referer: "https://weebcentral.com/",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      };
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
